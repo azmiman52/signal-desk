@@ -1,0 +1,57 @@
+# Existing internal planning documents (kept locally)
+/docs/README.md
+/docs/business-plan.md
+/docs/team.md
+/docs/task-board.md
+/docs/linear-index.json
+/docs/implementation-plan.md
+/docs/planning-review.md
+/docs/release-spec.md
+/docs/ux-spec.md
+/docs/architecture.md
+/docs/api-contract.md
+/docs/pipeline-design.md
+/docs/operations-plan.md
+/docs/test-strategy.md
+/docs/phase-2-review.md
+
+# Local verification output and tool downloads
+/.local/
+/artifacts/
+
+# Credentials and local configuration
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+
+# Dependencies and build output
+node_modules/
+dist/
+build/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Test and tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage/
+htmlcov/
+playwright-report/
+test-results/
+
+# Local data and editor files
+*.log
+*.sqlite
+*.sqlite3
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
