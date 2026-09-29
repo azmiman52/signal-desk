@@ -1,0 +1,48 @@
+name: signaldesk-local
+
+services:
+  db:
+    image: postgres:17.11-alpine
+    environment:
+      POSTGRES_DB: signaldesk
+      POSTGRES_USER: signaldesk
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-signaldesk-local-only}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U signaldesk -d signaldesk"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: infra/api.Dockerfile
+    environment:
+      DATABASE_URL: postgresql://signaldesk:${POSTGRES_PASSWORD:-signaldesk-local-only}@db:5432/signaldesk
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=4)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  frontend:
+    build:
+      context: .
+      dockerfile: infra/frontend.Dockerfile
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8080}:80"
+
+volumes:
+  postgres-data:

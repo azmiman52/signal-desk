@@ -1,0 +1,82 @@
+name: Verify
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.11-alpine
+        env:
+          POSTGRES_DB: signaldesk_test
+          POSTGRES_USER: signaldesk
+          POSTGRES_PASSWORD: signaldesk-ci-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U signaldesk -d signaldesk_test"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.14'
+      - name: Install pinned uv
+        run: python -m pip install uv==0.12.20
+      - name: Install locked dependencies
+        run: uv sync --frozen
+      - name: Lint
+        run: uv run --frozen ruff check .
+      - name: Formatting
+        run: uv run --frozen ruff format --check .
+      - name: Unit tests
+        run: uv run --frozen pytest -m 'not integration'
+      - name: Real PostgreSQL integration
+        env:
+          TEST_DATABASE_URL: postgresql://signaldesk:signaldesk-ci-only@127.0.0.1:5432/signaldesk_test
+        run: uv run --frozen pytest -m integration
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.3'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate local topology
+        run: docker compose config --quiet
+      - name: Build and start isolated stack
+        run: docker compose -p signaldesk-ci up --build -d --wait --wait-timeout 120
+      - name: Smoke frontend and proxied database readiness
+        run: |
+          curl --fail --silent --max-time 10 --retry 5 --retry-connrefused http://127.0.0.1:8080/ > /dev/null
+          curl --fail --silent --max-time 10 --retry 5 --retry-connrefused http://127.0.0.1:8080/health/ready
+      - name: Stop isolated runner stack
+        if: always()
+        run: docker compose -p signaldesk-ci down
