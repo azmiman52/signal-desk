@@ -40,7 +40,7 @@ jobs:
         run: uv run --frozen ruff format --check .
       - name: Unit tests
         run: uv run --frozen pytest -p no:cacheprovider -m 'not integration'
-      - name: Fresh and repeated migration with runtime privilege checks
+      - name: Populated previous-revision, fresh and repeated migrations with privilege checks
         env:
           BOOTSTRAP_DATABASE_URL: postgresql://signaldesk:signaldesk-ci-only@127.0.0.1:5432/signaldesk_test
           MIGRATOR_PASSWORD: signaldesk-migrator-ci-only

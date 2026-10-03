@@ -8,7 +8,7 @@ import httpx
 import pytest
 from sqlalchemy import func, select, update
 
-from signaldesk.db import accounts, oauth_attempts, projects, sessions
+from signaldesk.db import SCHEMA_HEAD, accounts, oauth_attempts, projects, sessions
 from signaldesk.security import digest
 
 pytestmark = pytest.mark.integration
@@ -239,10 +239,7 @@ async def test_migration_head_and_foreign_keys(harness):
     from sqlalchemy import text
 
     async with harness.db.connect() as conn:
-        assert (
-            await conn.scalar(text("SELECT version_num FROM alembic_version"))
-            == "0001_identity_projects"
-        )
+        assert await conn.scalar(text("SELECT version_num FROM alembic_version")) == SCHEMA_HEAD
         assert await conn.scalar(select(func.count()).select_from(accounts)) == 0
 
 

@@ -23,6 +23,7 @@ from signaldesk.db import (
 )
 from signaldesk.errors import APIError
 from signaldesk.security import account_json, authenticate, digest, limit
+from signaldesk.subscription_rules import active_source_count, ensure_source_capacity
 
 router = APIRouter(prefix="/api/v1")
 
@@ -78,7 +79,11 @@ def project_json(project):
             key: project[key]
             for key in ("id", "name", "description", "created_at", "archived_at", "version")
         }
-    ) | {"active_source_count": 0}
+    ) | {
+        "active_source_count": 0
+        if project["archived_at"]
+        else project.get("active_source_count", 0)
+    }
 
 
 def login_error(request, exc):
@@ -334,7 +339,11 @@ async def list_projects(
         if not include_archived:
             filters.append(projects.c.archived_at.is_(None))
         # One statement snapshot for both total and page, including an empty page.
-        filtered = select(projects).where(*filters).cte("filtered")
+        filtered = (
+            select(projects, active_source_count(projects.c.id).label("active_source_count"))
+            .where(*filters)
+            .cte("filtered")
+        )
         paged = (
             select(filtered)
             .order_by(filtered.c.created_at.desc(), filtered.c.id.desc())
@@ -370,7 +379,9 @@ async def owned_project(conn, owner, project_id):
     project = (
         (
             await conn.execute(
-                select(projects).where(projects.c.id == project_id, projects.c.account_id == owner)
+                select(projects, active_source_count(projects.c.id).label("active_source_count"))
+                .where(projects.c.id == project_id, projects.c.account_id == owner)
+                .with_for_update(of=projects)
             )
         )
         .mappings()
@@ -452,6 +463,8 @@ async def mutate_project(request, body, project_id=None, action="create"):
                     "capacity_exceeded",
                     "Archive a project before adding another. Limit: 3 active projects.",
                 )
+            if action == "restore":
+                await ensure_source_capacity(conn, owner, restore_project=project_id)
         if action == "create":
             result = (
                 (
@@ -497,6 +510,7 @@ async def mutate_project(request, body, project_id=None, action="create"):
                 .mappings()
                 .one()
             )
+        result = await owned_project(conn, owner, result["id"])
         response, status = project_json(result), 201 if action == "create" else 200
         if key:
             await conn.execute(
