@@ -5,6 +5,6 @@ export default defineConfig({
   plugins: [react()],
   server: {
     strictPort: true,
-    proxy: { "/health": process.env.API_PROXY_TARGET ?? "http://127.0.0.1:8000" },
+    proxy: { "/api": process.env.API_PROXY_TARGET ?? "http://127.0.0.1:8000", "/health": process.env.API_PROXY_TARGET ?? "http://127.0.0.1:8000" },
   },
 });

@@ -10,7 +10,7 @@ export async function checkReadiness(fetcher: typeof fetch = fetch): Promise<Rea
     if (!body || typeof body !== "object" || !("status" in body) || !("scope" in body)) {
       return "unreachable";
     }
-    if (body.scope !== "database_connectivity") return "unreachable";
+    if (body.scope !== "database_schema") return "unreachable";
     if (response.status === 200 && body.status === "ready") return "ready";
     if (response.status === 503 && body.status === "not_ready") return "not_ready";
     return "unreachable";
