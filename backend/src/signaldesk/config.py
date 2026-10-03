@@ -11,6 +11,7 @@ class Settings:
     github_client_id: str = ""
     github_client_secret: str = field(default="", repr=False)
     github_redirect_uri: str = ""
+    github_collector_token: str = field(default="", repr=False)
     max_accounts: int = 100
 
     def __post_init__(self):
@@ -60,5 +61,6 @@ class Settings:
             github_client_id=os.getenv("GITHUB_CLIENT_ID", ""),
             github_client_secret=os.getenv("GITHUB_CLIENT_SECRET", ""),
             github_redirect_uri=os.getenv("GITHUB_REDIRECT_URI", ""),
+            github_collector_token=os.getenv("GITHUB_COLLECTOR_TOKEN", ""),
             max_accounts=int(os.getenv("MAX_ACCOUNTS", "100")),
         )

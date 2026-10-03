@@ -2,7 +2,7 @@
 
 SignalDesk helps developers review public software releases in the context of their projects and record maintenance decisions.
 
-This branch adds GitHub sign-in, server-side sessions, private projects, and explicit PostgreSQL migrations to the React/FastAPI foundation. GitHub release collection, review persistence, and a durable worker are still later work. The local stack is not a production deployment.
+This branch adds public GitHub repository subscriptions and manual release collection to the account/project workspace. A separate worker consumes durable PostgreSQL jobs and retains release history. Review decisions, scheduled checks, automatic retries, and production deployment remain later work.
 
 ## Run the local stack
 
@@ -27,6 +27,16 @@ docker compose up -d --wait
 
 ## Native development
 
+### Public repository collection
+
+Inside a project, add a public GitHub repository by `owner/repository` or its GitHub URL. Saving starts a persisted initial check. Use Check now for subsequent manual checks; active work is reused and completed checks have a 60-second per-source cooldown. Run history distinguishes queued/running, successful empty results, partial coverage and failures. Pausing/removing a subscription or archiving its project prevents later delivery while preserving collected history.
+
+Phase 4 checks only the first 30 entries returned by GitHub, then applies the subscription's prerelease preference. Older history is not scanned in the background. Release history includes captured prereleases even when they are excluded from project delivery. Notes are shown as text; remote HTML/images are not executed or loaded. The full inbox and decision workflow come later.
+
+Compose starts a `worker` service with the same restricted database role as the API, after migration completes. It has no published port and receives no OAuth login credentials. Check its sanitized operational output with `docker compose logs --tail 50 worker`. Pending jobs survive restarts; an interrupted running job expires visibly and requires a new manual check. Automatic retries and scheduling are not enabled in this phase.
+
+`GITHUB_COLLECTOR_TOKEN` is optional and server-side only. Empty uses GitHub's public unauthenticated API allowance. For increased capacity, configure a dedicated public-read credential in ignored `.env`; do not reuse `GITHUB_CLIENT_SECRET` or sign-in tokens. API validation and worker fetching share a durable provider gate and respect rate-limit deferrals. Never print resolved Compose environment output or authorization headers.
+
 ### Local GitHub OAuth setup
 
 Create a GitHub **OAuth App** in your account's Developer settings. Set Homepage URL to `http://127.0.0.1:8080` and Authorization callback URL to exactly `http://127.0.0.1:8080/api/v1/auth/github/callback`. Put its client ID and generated client secret in `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in the ignored root `.env`. Do not paste them into issues, commit them, or put them in frontend variables. Missing credentials produce an explicit sign-in configuration error; no local auth bypass is enabled.
@@ -41,15 +51,15 @@ The `migrate` service completes before API startup. It uses the existing `signal
 
 Role provisioning is scoped to this application's database. It changes public-schema ownership/permissions but does not drop tables or volumes. It must not run against an unrelated shared database. Runtime/migrator passwords come from `.env` with explicit local-only defaults; provisioning reapplies them on each migration run. The bootstrap password for an existing volume must match its previously initialized value. A migration failure blocks API startup.
 
-To upgrade the local running stack, stop API traffic first, run the explicit migration, then recreate the matching API/frontend:
+To upgrade the local running stack, stop API traffic and the worker first, run the explicit migration, then recreate the matching services:
 
 ```powershell
-docker compose stop api frontend
+docker compose stop api frontend worker
 docker compose run --build --rm migrate
 docker compose up --build -d --wait
 ```
 
-Do not continue the last command if migration fails. Retain a backup before later data-bearing schema changes. The initial revision has no prior application schema to migrate; CI exercises fresh initialization and an idempotent repeat upgrade preserving a sentinel row. Future revisions must add a populated previous-revision upgrade test. No automatic downgrade or destructive reset is provided.
+Do not continue the last command if migration fails. Retain a backup before data-bearing schema changes. CI checks fresh initialization, repeat upgrade with retained data, and a populated Phase 3 upgrade that preserves an account, session and project. No automatic downgrade or destructive reset is provided.
 
 Uvicorn access logging is disabled. nginx access logs contain path-only URIs without query strings, and nginx error logging is suppressed locally because upstream errors can contain OAuth codes. Keep callback codes, state, cookies, and credentials out of diagnostic output.
 
@@ -115,7 +125,7 @@ CI runs locked installs, backend lint/unit/real-PostgreSQL integration tests and
 - `scripts/`: scoped developer verification helpers.
 - `.github/workflows/ci.yml`: hosted verification.
 
-Environment files, credentials, caches, generated output, local artifacts, and internal planning files are excluded from version control/build context where appropriate. Keep technical onboarding here. Do not put credentials in frontend build variables. Local runtime and migration roles are separate. OAuth credentials stay in ignored local configuration. Worker, backups/restore drills, public TLS, and production secret management remain later work before hosting real users.
+Environment files, credentials, caches, generated output, local artifacts, and internal planning files are excluded from version control/build context where appropriate. Keep technical onboarding here. Do not put credentials in frontend build variables. Local runtime and migration roles are separate. OAuth credentials stay in ignored local configuration. Scheduled collection, automatic retry/recovery, backups/restore drills, public TLS, and production secret management remain later work before hosting real users.
 
 ## Runtime provenance and current limits
 

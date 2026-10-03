@@ -47,3 +47,10 @@ describe('session identity and bounded requests', () => {
     await expect(request('/projects', { method: 'POST', timeoutMs: 10 }, fetcher)).rejects.toMatchObject({ status: 0, code: 'network_error' });
   });
 });
+
+describe('provider cooldown metadata', () => {
+  it('carries provider retry time without exposing the raw server message', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ error: { code: 'cooldown', message: 'internal details', retry_at: '2026-10-03T12:01:00Z' } }), { status: 429, headers: { 'Retry-After': '60' } }));
+    await expect(request('/subscriptions/s/checks', {}, fetcher)).rejects.toMatchObject({ code: 'cooldown', retryAt: '2026-10-03T12:01:00Z', message: expect.not.stringContaining('internal details') });
+  });
+});
