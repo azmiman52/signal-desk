@@ -25,7 +25,7 @@ async def test_readiness_is_honest_and_uncached(healthy, code):
         response = await client.get("/health/ready")
     assert response.status_code == code
     assert response.headers["cache-control"] == "no-store"
-    assert response.json()["scope"] == "database_connectivity"
+    assert response.json()["scope"] == "database_schema"
     assert response.json()["checks"]["database"] == ("reachable" if healthy else "unavailable")
 
 

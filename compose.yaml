@@ -17,15 +17,35 @@ services:
       timeout: 3s
       retries: 20
 
+  migrate:
+    build:
+      context: .
+      dockerfile: infra/api.Dockerfile
+    environment:
+      BOOTSTRAP_DATABASE_URL: postgresql://signaldesk:${POSTGRES_PASSWORD:-signaldesk-local-only}@db:5432/signaldesk
+      MIGRATOR_PASSWORD: ${MIGRATOR_PASSWORD:-signaldesk-migrator-local-only}
+      APP_DATABASE_PASSWORD: ${APP_DATABASE_PASSWORD:-signaldesk-app-local-only}
+    command: ["python", "/app/infra/migrate.py"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
   api:
     build:
       context: .
       dockerfile: infra/api.Dockerfile
     environment:
-      DATABASE_URL: postgresql://signaldesk:${POSTGRES_PASSWORD:-signaldesk-local-only}@db:5432/signaldesk
+      DATABASE_URL: postgresql://signaldesk_app:${APP_DATABASE_PASSWORD:-signaldesk-app-local-only}@db:5432/signaldesk
+      APP_ENV: development
+      MAX_ACCOUNTS: ${MAX_ACCOUNTS:-100}
+      APP_ORIGIN: ${APP_ORIGIN:-http://127.0.0.1:8080}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      GITHUB_REDIRECT_URI: ${GITHUB_REDIRECT_URI:-http://127.0.0.1:8080/api/v1/auth/github/callback}
     depends_on:
-      db:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"
     healthcheck:

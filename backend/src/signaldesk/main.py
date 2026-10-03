@@ -3,10 +3,20 @@
 import asyncio
 import os
 from collections.abc import Awaitable, Callable
+from contextlib import asynccontextmanager
+from uuid import uuid4
 
 import asyncpg
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import SQLAlchemyError
+
+from signaldesk.api import router
+from signaldesk.config import Settings
+from signaldesk.db import SCHEMA_HEAD, make_engine
+from signaldesk.errors import APIError, api_error
+from signaldesk.provider import GitHubProvider
 
 DatabaseProbe = Callable[[], Awaitable[bool]]
 
@@ -14,8 +24,8 @@ DatabaseProbe = Callable[[], Awaitable[bool]]
 async def database_ready() -> bool:
     """Check a real database without exposing credentials or blocking the event loop.
 
-    This is connectivity readiness only. Schema compatibility must be added with
-    the first migration; collection freshness will be a separate signal.
+    Checks connectivity and the expected migration head; collection freshness
+    remains a separate signal.
     """
     database_url = os.environ.get("DATABASE_URL")
     if not database_url:
@@ -29,7 +39,11 @@ async def database_ready() -> bool:
                 command_timeout=1,
                 server_settings={"statement_timeout": "1000"},
             )
-            return await connection.fetchval("SELECT 1") == 1
+            if await connection.fetchval("SELECT 1") != 1:
+                return False
+            return (
+                await connection.fetchval("SELECT version_num FROM alembic_version") == SCHEMA_HEAD
+            )
     except (TimeoutError, asyncpg.PostgresError, OSError, ValueError):
         return False
     finally:
@@ -39,8 +53,49 @@ async def database_ready() -> bool:
             connection.terminate()
 
 
-def create_app(probe: DatabaseProbe = database_ready) -> FastAPI:
-    app = FastAPI(title="SignalDesk API", version="0.1.0")
+def create_app(
+    probe: DatabaseProbe = database_ready, *, settings=None, db_engine=None, oauth_provider=None
+) -> FastAPI:
+    settings = settings or Settings.from_env()
+    owned_engine = db_engine is None
+    db_engine = db_engine or (make_engine(settings.database_url) if settings.database_url else None)
+
+    @asynccontextmanager
+    async def lifespan(app):
+        yield
+        if owned_engine and app.state.engine is not None:
+            await app.state.engine.dispose()
+
+    app = FastAPI(title="SignalDesk API", version="0.2.0", lifespan=lifespan, debug=False)
+    app.state.settings = settings
+    app.state.engine = db_engine
+    app.state.oauth_provider = oauth_provider or GitHubProvider()
+    app.include_router(router)
+    app.add_exception_handler(APIError, api_error)
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(request, exc):
+        # Never echo arbitrary submitted inputs (codes, tokens or private text).
+        return await api_error(
+            request, APIError(422, "validation_error", "Check the submitted fields.")
+        )
+
+    @app.middleware("http")
+    async def safe_response(request, call_next):
+        request.state.request_id = str(uuid4())
+        try:
+            response = await call_next(request)
+        except (SQLAlchemyError, TimeoutError, OSError):
+            # SQL exception strings can contain bind parameters. Do not log them.
+            response = await api_error(
+                request,
+                APIError(503, "service_unavailable", "The service is temporarily unavailable."),
+            )
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["X-Request-ID"] = request.state.request_id
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        return response
 
     @app.get("/health/live", tags=["health"])
     async def live() -> JSONResponse:
@@ -55,8 +110,11 @@ def create_app(probe: DatabaseProbe = database_ready) -> FastAPI:
         return JSONResponse(
             {
                 "status": "ready" if healthy else "not_ready",
-                "checks": {"database": "reachable" if healthy else "unavailable"},
-                "scope": "database_connectivity",
+                "checks": {
+                    "database": "reachable" if healthy else "unavailable",
+                    "schema": "compatible" if healthy else "unavailable",
+                },
+                "scope": "database_schema",
             },
             status_code=200 if healthy else 503,
             headers={"Cache-Control": "no-store"},

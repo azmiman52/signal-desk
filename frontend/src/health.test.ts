@@ -9,7 +9,7 @@ describe("readiness contract", () => {
     [200, "not_ready", "unreachable"],
   ])("maps HTTP %s and %s honestly", async (code, status, expected) => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
-      new Response(JSON.stringify({ status, scope: "database_connectivity" }), { status: code }),
+      new Response(JSON.stringify({ status, scope: "database_schema" }), { status: code }),
     );
     expect(await checkReadiness(fetcher)).toBe(expected);
   });
